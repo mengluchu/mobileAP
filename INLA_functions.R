@@ -2,16 +2,16 @@
 #' 
 #' @param coo coordinates to create the mesh
 #' @return mesh boject
-fnConstructMesh = function(coo){
+fnConstructMesh = function(coo, cutoff_ratio=0.1){
   # meshbuilder()
   # offset: size of the inner and outer extensions around the data locations
-  (offset1 = 1/8*max(dist(coo)))
+  (offset1 = 1/8*max(dist(coo)))  #1/8
   (offset2 = 1/8*max(dist(coo)))
   # max.edge: maximum allowed triangle edge lengths in the region and in the extension
-  (maxedge1 = 1/30*max(dist(coo)))
-  (maxedge2 = 1/5*max(dist(coo)))
+  (maxedge1 = 1/20*max(dist(coo))) #1/30
+  (maxedge2 = 1*max(dist(coo)))  #1/5
   # cutoff: minimum allowed distance between points used to avoid building many small triangles around clustered locations
-  (cutoff = 1/10000*max(dist(coo)))
+  (cutoff = cutoff_ratio*max(dist(coo)))
   mesh = inla.mesh.2d(loc = coo, offset = c(offset1, offset2), cutoff = cutoff, max.edge = c(maxedge1, maxedge2))
   plot(mesh)
   points(coo, col = "red")
@@ -44,6 +44,7 @@ fnFitModelINLA = function(d, dp, formula, covnames, TFPOSTERIORSAMPLES, family =
   coo = cbind(d$coox, d$cooy)
   # Mesh
   mesh = fnConstructMesh(coo)
+  print("mesh")
   # Building the SPDE model on the mesh
   #  spde = inla.spde2.pcmatern(mesh, prior.range = c(500, .5), prior.sigma = c(2, 0.01))
   spde = inla.spde2.matern(mesh = mesh, alpha = 2, constr = TRUE)
