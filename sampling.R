@@ -188,3 +188,32 @@ levelplot(dif,
 dev.off()
 #predict(sr, bst, fun = predfun)
 
+#################
+# Inla
+#####3
+
+library(INLA)
+source("~/Documents/mobileAP/INLA_functions.R")
+
+covnames = c("b0", "nightlight_450", "population_1000", "population_3000",
+             "road_class_1_5000", "road_class_2_100", "road_class_3_300",  
+             "trop_mean_filt", "road_class_1_100")
+
+#scale covariates 
+d2 = data0
+d2$b0 = 1 # intercept
+
+#d2= d2%>%dplyr::select(covnames)%>%data.frame
+d2 = d2%>%rename(coox = x, cooy=y, y = Mixed_NO2)
+d2$real = d2$y
+
+head(d2)
+# Variables for stacked generalization
+# d$lasso = d$lasso10f_pre
+# d$rf = d$rf10f_pre
+# d$xgb = d$xgb10f_pre
+#d$Countrycode  = as.factor(d$Countrycode)
+
+#spatial and non-spatial model
+formula = as.formula(paste0('y ~ 0 + ', paste0(covnames, collapse = '+'), " + f(s, model = spde)"))
+lres <- fnFitModelINLA(d2, dp = d2, covnames, formula = formula, TFPOSTERIORSAMPLES = TRUE, family = "gaussian")
