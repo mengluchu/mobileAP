@@ -236,7 +236,7 @@ nrow(d2)
 #===============================================
 # model hyperparameter, figure 5 supplementary
 #==================================================
-par(mfrow=c(2,2))
+#par(mfrow=c(1,1))
 # Intercept
 plot(lres[[1]]$marginals.fix[[1]], type='l', xlab=expression(Intercept), ylab="Density", cex.lab=1.6, cex.axis=1.4)
 
@@ -336,5 +336,29 @@ head(sdf)
 sdf = sdf %>%rename(coox = x, cooy=y)
 
 lres <- fnFitModelINLA(d2,  sdf, covnames = covnames, formula = formula, TFPOSTERIORSAMPLES = FALSE, family = "gaussian")
-lres[[1]]$summary.fixed
-nrow(d2)
+
+index.pred <- inla.stack.index(lres[[2]], "pred")$data
+
+pred_mean = lres[[1]]$summary.fitted.values[index.pred, "mean"] 
+predf = data.frame(pred_mean, x= lres[[5]][, 1],y= lres[[5]][, 2])
+names(predf)
+rast(predf, type = "xyz") 
+
+preras = terra::rasterize(x = as.matrix(predf[,2:3]), y = s[[1]], values =predf[,1], fun=mean)
+plot(preras)
+pdf ("~/Downloads/INLApred.pdf")
+levelplot(
+ preras,  par.settings = myTheme, names.attr = "INLA")              
+dev.off()
+
+
+
+pdf("~/Downloads/result/INLAdif_fixedtotal.pdf")
+
+dif = preras - no2
+dif = ifel(dif>-20, dif,-20) 
+
+levelplot(dif,
+          par.settings = myTheme2, names.attr = "INLA - real")
+dev.off()
+#predict(sr, bst, fun = predfun)
