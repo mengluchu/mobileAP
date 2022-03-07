@@ -173,7 +173,7 @@ library(RColorBrewer)
   
 pdf("~/Downloads/result/xgb_fixedtotal.pdf")
 levelplot(
-  stack(list.files("~/Downloads/", pattern = "xgb*" , full.names = TRUE)),
+  raster::stack(list.files("~/Downloads/", pattern = "xgb*" , full.names = TRUE)),
   par.settings = myTheme, names.attr = name_attr)
 dev.off()
 
