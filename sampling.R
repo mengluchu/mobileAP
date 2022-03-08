@@ -48,13 +48,13 @@ samp = st_cast(samp, "POINT")
 samp_sp =  as(samp, "Spatial")
 
 # sample all traffic points
-samp_r= extract(r225, vect(samp_sp), xy = T)
+samp_r= terra::extract(r225, vect(samp_sp), xy = T)
 sf_r225 = st_as_sf(samp_r, coords = c("x","y"),crs = 4326)
 quantile(sf_r225$road_class_2_25, c(0.25, 0.5, 0.92, 0.95)) # 9 percent of the data, from 100,000
 traffic = sf_r225%>%filter(road_class_2_25>0.1) 
 st_crs(traffic)
 #notraffic 
-samp_r= extract(s,vect(samp_sp), xy= T)
+samp_r= terra::extract(s,vect(samp_sp), xy= T)
 sf_r = st_as_sf(samp_r , coords = c("x","y"),crs = 4326)
 no_traf = sf_r%>%filter(road_class_2_500<0.1&road_class_1_500<0.1)
 
@@ -73,7 +73,7 @@ create_dataset = function(traffic = traffic, no_traffic=no_traf,ras_stack = s2, 
   st_crs(sample_no_traffic) = 4326
   tn = c(sample_no_traffic, sample_traffic)
   sptn = as(tn, "Spatial")
-  extract(ras_stack, vect(sptn), xy= T)%>%data.frame()
+  terra::extract(ras_stack, vect(sptn), xy= T)%>%data.frame()
 
 }
 
@@ -330,7 +330,8 @@ ggplot(gres, aes(lon,lat)) +
                         colours = rev(brewer.pal(10,"Spectral")))
 
 #
-sdf = as.data.frame(s,xy = T)
+sdf = as.data.frame(s,xy = T) # this raster consists of Mixed_NO2, therefore only calculates on road.
+nrow(sdf)
 sdf$b0=1
 head(sdf)
 sdf = sdf %>%rename(coox = x, cooy=y)
@@ -362,3 +363,134 @@ levelplot(dif,
           par.settings = myTheme2, names.attr = "INLA - real")
 dev.off()
 #predict(sr, bst, fun = predfun)
+
+
+
+for (i in 2:5){
+  data0  = create_dataset (traffic = traffic, no_traffic=no_traf,ras_stack = s, n_traffic= s1[i], n_no_traffic= s2[i])
+  data_ = data0%>%dplyr::select(-ID,-x,-y)%>%na.omit()
+  d2 = data0
+  d2$b0 = 1 # intercept
+  
+  d2 = d2%>%rename(coox = x, cooy=y, y = Mixed_NO2)
+  d2$real = d2$y
+  nrow(d2)
+ 
+  d2= d2%>%dplyr::select(covnames, real, coox, cooy, y)%>%data.frame
+  
+  # form validation dataset
+  train = st_as_sf(data0,coords= c("x","y"),crs =4326)
+  sel = st_distance(train,traffic)
+  
+  vali_traf= traffic[which(apply(sel, 2, min)>50),]%>%na.omit()%>%sample_n(100, replace = T)
+  # validation points are at least 50m away from training points
+  
+  sel = st_distance(train,no_traf)
+  vali_notraf= no_traf[which(apply(sel, 2, min)>50),]%>%na.omit()%>%sample_n(100, replace = T)
+  
+  st_geometry(vali_traf) = NULL
+  st_geometry(vali_notraf) = NULL
+ 
+  nrow(vali_traf)
+  nrow(vali_notraf)
+  
+  
+  sdf = as.data.frame(s, xy = T)
+  sdf$b0=1
+ 
+  sdf = sdf %>%rename(coox = x, cooy=y)
+  
+  lres <- fnFitModelINLA(d2,  sdf, covnames = covnames, formula = formula, TFPOSTERIORSAMPLES = FALSE, family = "gaussian")
+  
+  index.pred <- inla.stack.index(lres[[2]], "pred")$data
+  
+  pred_mean = lres[[1]]$summary.fitted.values[index.pred, "mean"] 
+  predf = data.frame(pred_mean, x= lres[[5]][, 1],y= lres[[5]][, 2])
+  #names(predf)
+  #rast(predf, type = "xyz") 
+  
+  preras = terra::rasterize(x = as.matrix(predf[,2:3]), y = s[[1]], values =predf[,1], fun=mean)
+
+  terra::writeRaster(preras,paste("~/Downloads/INLA", i, ".tif", sep = "_"),
+                     overwrite =T)  
+}
+  #xgb
+pdf("~/Downloads/result/INLA_5model.pdf")
+levelplot(
+  raster::stack(list.files("~/Downloads/", pattern = "INLA*" , full.names = TRUE)),
+  par.settings = myTheme, names.attr = name_attr)
+dev.off()
+
+stest  =raster::stack(list.files("~/Downloads/", pattern = "INLA*" , full.names = TRUE))
+plot(stest[[1]]-stest[[5]])
+
+plot(s[[1]])
+stest2  =raster::stack(list.files("~/Downloads/", pattern = "xgb*" , full.names = TRUE))
+stest2 = stest2-stest+stest
+
+xgbdif15= stest2[[1]]-stest2[[5]]
+inladif15 =stest [[1]]-stest[[5]]
+ 
+sta = raster::stack(xgbdif15,inladif15)
+pdf("~/Downloads/result/INLA_xgb15.pdf")
+levelplot(
+sta,par.settings = myTheme, names.attr = c("xgb","inla"))
+dev.off()
+
+
+xgbdif= rast(stest2[[5]])-no2
+inladif =rast(stest [[5]])-no2 
+xgbdif = ifel(xgbdif>-20, xgbdif,-20) 
+inladif = ifel(inladif>-20, inladif,-20) 
+
+add(xgbdif)<-inladif
+pdf("~/Downloads/result/INLA_xgb_comparetoreal.pdf")
+levelplot(
+  xgbdif,par.settings = myTheme2, names.attr = c("xgb","inla"))
+dev.off()
+
+
+xgbdif= rast(stest2[[1]])-no2
+inladif =rast(stest [[1]])-no2 
+xgbdif = ifel(xgbdif>-20, xgbdif,-20) 
+inladif = ifel(inladif>-20, inladif,-20) 
+
+add(xgbdif)<-inladif
+pdf("~/Downloads/result/INLA_xgb_comparetoreal1.pdf")
+levelplot(
+  xgbdif,par.settings = myTheme2, names.attr = c("xgb","inla"))
+dev.off()
+
+
+xgbdif= rast(stest2[[1]])-no2
+inladif =rast(stest [[1]])-no2 
+dif = xgbdif -inladif 
+dif = ifel(dif>-10, dif,-10) 
+dif = ifel(dif<10, dif,10) 
+
+
+pdf("~/Downloads/result/INLA_xgb_difcomparetoreal1.pdf")
+levelplot(
+  dif,par.settings = myTheme2, names.attr = c("xgb-inla"))
+dev.off()
+
+# both overestimate, who is better?
+dif2 = ifel (xgbdif > 0, dif,NA )
+dif3 = ifel (inladif >0, dif2,NA )
+ pdf("~/Downloads/result/xgbinla5_dif_overrestimate.pdf")
+levelplot(dif3,par.settings = myTheme2, names.attr = c("overestimate"), margin =F)
+dev.off() 
+
+# both underestimate, who is better?
+dif2 = ifel (xgbdif < 0, dif,NA )
+dif3 = ifel (inladif <0, dif2,NA )
+pdf("~/Downloads/result/xgbinla1_dif_under.pdf")
+levelplot(dif3,par.settings = myTheme2, names.attr = c("underestimate"), margin =F)
+dev.off() 
+xgbdif= rast(stest2[[5]])-no2
+inladif =rast(stest [[5]])-no2 
+pdf("~/Downloads/result/INLA_xgb_dif.pdf")
+difxgbinla = stest[[5]]-stest2[[5]]
+levelplot(difxgbinla,par.settings = myTheme2)
+dev.off()
+
