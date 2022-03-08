@@ -48,10 +48,10 @@ samp = st_cast(samp, "POINT")
 samp_sp =  as(samp, "Spatial")
 
 # sample all traffic points
-samp_r= terra::extract(r225, vect(samp_sp), xy = T)
+samp_r= terra::extract(s, vect(samp_sp), xy = T)
 sf_r225 = st_as_sf(samp_r, coords = c("x","y"),crs = 4326)
 quantile(sf_r225$road_class_2_25, c(0.25, 0.5, 0.92, 0.95)) # 9 percent of the data, from 100,000
-traffic = sf_r225%>%filter(road_class_2_25>0.1) 
+traffic = sf_r225%>%filter(road_class_2_25>0.1|road_class_1_25>0.1) 
 st_crs(traffic)
 #notraffic 
 samp_r= terra::extract(s,vect(samp_sp), xy= T)
@@ -68,9 +68,11 @@ create_dataset = function(traffic = traffic, no_traffic=no_traf,ras_stack = s2, 
   st_crs(sample_traffic) = 4326
   
   sample_no_traffic = st_sample(no_traffic, n_no_traffic)%>%st_cast("POINT")
-  plot(sample_traffic)
-  plot(sample_no_traffic)
   st_crs(sample_no_traffic) = 4326
+  p = ggplot()+geom_sf(data = sample_traffic, col = "red") +geom_sf(data =sample_no_traffic,color= "green")
+  ggsave(paste0("~/Downloads/sample_", i, ".png"), p)
+   
+  
   tn = c(sample_no_traffic, sample_traffic)
   sptn = as(tn, "Spatial")
   terra::extract(ras_stack, vect(sptn), xy= T)%>%data.frame()
@@ -110,6 +112,9 @@ s2 = total - s1
 #s2 =rep(200,5)
 
 set.seed(1)
+for (i in 1:5){
+  data0  = create_dataset (traffic = traffic, no_traffic=no_traf,ras_stack = s, n_traffic= s1[i], n_no_traffic= s2[i])
+}
 for (i in 1:5){
 data0  = create_dataset (traffic = traffic, no_traffic=no_traf,ras_stack = s, n_traffic= s1[i], n_no_traffic= s2[i])
 data_ = data0%>%dplyr::select(-ID,-x,-y)%>%na.omit()
@@ -475,6 +480,7 @@ levelplot(
 dev.off()
 
 # both overestimate, who is better?
+# it is obvious that INLA model overestimate more at local roads, and even more with more traffic samples
 dif2 = ifel (xgbdif > 0, dif,NA )
 dif3 = ifel (inladif >0, dif2,NA )
  pdf("~/Downloads/result/xgbinla5_dif_overrestimate.pdf")
