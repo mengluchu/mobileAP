@@ -1,9 +1,95 @@
+library(ranger)
+library(rasterVis)
+library(RColorBrewer)
+library(INLA)
+source("~/Documents/mobileAP/INLA_functions.R")
+
+library(sf)
+library(dplyr)
+library(terra)
+library(APMtools)
+library(xgboost)
+library(ggplot2)
+library(raster)
 covnames = c("b0", "nightlight_450", "population_1000", "population_3000",
              "road_class_1_5000", "road_class_2_100", "road_class_3_300",  
              "trop_mean_filt", "road_class_1_100")
 formula = as.formula(paste0('y ~ 0 + ', paste0(covnames, collapse = '+'), " + f(s, model = spde)"))
 
 #scale covariates 
+
+
+#data preparation 
+a = read_sf("~/Documents/GitHub/mobileAP/AMS_MixedModels_25May2021.shp")
+a = st_transform(a, 4326)
+a = a["Mixed_NO2"]%>%filter(Mixed_NO2>1)
+samp = st_sample(a, 10000)
+samp = samp [!st_is_empty(samp)]
+# the most costly, but takes not so long
+asp = as_Spatial(a)
+ 
+
+ams = read_sf("~/Documents/GitHub/AP_AMS/AMS_polygon/")
+ams=st_transform(ams, 4326)
+
+s = rast(list.files("~/Documents/GitHub/global-mapping/denl/ams", full.names = T))
+s = crop(s, ams)
+
+rs_template=  rast("~/Documents/GitHub/global-mapping/denl/ams/road_class_2_25.tif")
+
+no2 = terra::rasterize(vect(a), rs_template,  field = "Mixed_NO2", fun = mean)
+no2 =terra::crop(no2, s[[1]])
+
+
+add(s)<-no2
+
+r225 = s[["road_class_2_25"]]
+s= stack(no2,s)
+
+nlayers(s)
+samp = st_cast(samp, "POINT")
+samp_sp =  as(samp, "Spatial")
+
+# sample all traffic points
+samp_r= terra::extract(s, vect(samp_sp), xy = T)
+sf_r225 = st_as_sf(samp_r, coords = c("x","y"),crs = 4326)
+quantile(sf_r225$road_class_2_25, c(0.25, 0.5, 0.92, 0.95)) # 9 percent of the data, from 100,000
+traffic2 = sf_r225%>%filter(road_class_2_25>0.1&road_class_1_25<0.1)
+traffic1 = sf_r225%>%filter(road_class_1_25>0.1&road_class_2_25<0.1)
+traffic = rbind(traffic1, traffic2)
+nrow(traffic2)
+#notraffic 
+samp_r= terra::extract(s,vect(samp_sp), xy= T)
+sf_r = st_as_sf(samp_r , coords = c("x","y"),crs = 4326)
+no_traf = sf_r%>%filter(road_class_2_500<0.1&road_class_1_500<0.1)
+
+ggplot(traffic1)+geom_sf()
+ 
+ggplot(traffic2)+geom_sf()
+ 
+ggplot(traffic)+geom_sf()
+ 
+ggplot(no_traf)+geom_sf()
+ 
+create_dataset = function(traffic = traffic, no_traffic=no_traf,ras_stack = s2, n_traffic= 300, n_no_traffic= 50)
+{
+  sample_traffic = st_sample(traffic, n_traffic)%>%st_cast("POINT")
+  st_crs(sample_traffic) = 4326
+  
+  sample_no_traffic = st_sample(no_traffic, n_no_traffic)%>%st_cast("POINT")
+  st_crs(sample_no_traffic) = 4326
+  p = ggplot()+geom_sf(data = sample_traffic, col = "red") +geom_sf(data =sample_no_traffic,color= "green")
+  ggsave(paste0("~/Downloads/sample_", i, ".png"), p)
+  
+  
+  tn = c(sample_no_traffic, sample_traffic)
+  sptn = as(tn, "Spatial")
+  terra::extract(ras_stack, vect(sptn), xy= T)%>%data.frame()
+  
+}
+
+data0  = create_dataset (traffic = traffic, no_traffic=no_traf,ras_stack = s, n_traffic= s1[i], n_no_traffic= s2[i])
+
 d2 = data0
 d2$b0 = 1 # intercept
 

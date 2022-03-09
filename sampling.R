@@ -17,17 +17,18 @@ library(terra)
 library(APMtools)
 library(xgboost)
 library(ggplot2)
+library(raster)
 
-#library(raster)
+#data preparation 
 a = read_sf("~/Documents/GitHub/mobileAP/AMS_MixedModels_25May2021.shp")
 a = st_transform(a, 4326)
 a = a["Mixed_NO2"]%>%filter(Mixed_NO2>1)
 samp = st_sample(a, 10000)
 samp = samp [!st_is_empty(samp)]
- 
+# the most costly, but takes not so long
 asp = as_Spatial(a)
 
-plot(no2)
+ 
 
 ams = read_sf("~/Documents/GitHub/AP_AMS/AMS_polygon/")
 ams=st_transform(ams, 4326)
@@ -36,17 +37,16 @@ s = rast(list.files("~/Documents/GitHub/global-mapping/denl/ams", full.names = T
 s = crop(s, ams)
 
 rs_template=  rast("~/Documents/GitHub/global-mapping/denl/ams/road_class_2_25.tif")
+## much faster than raster::rasterize 
 
 no2 = terra::rasterize(vect(a), rs_template,  field = "Mixed_NO2", fun = mean)
 no2 =terra::crop(no2, s[[1]])
-
+plot(no2)
 
 add(s)<-no2
- 
 r225 = s[["road_class_2_25"]]
-## much faster than raster::rasterize 
-no2r =as.raster(no2)
-s= stack(no2,s)
+
+s= raster::stack(no2,s)
 
 nlayers(s)
 samp = st_cast(samp, "POINT")
@@ -289,6 +289,7 @@ createmaps = function(){
   dev.off()
 }
 
+#calculation starts here
 total = 800
 s1 = c(50, 150,300,500,700) # traffic 
 s2 = total - s1
