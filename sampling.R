@@ -120,6 +120,34 @@ xgbwrap = function (sr, df_var, y_var, xgbname = "xgb.tif", max_depth,
 predfun <- function(model, data) {
   v <- predict(model, as.matrix(data))
 }
+ 
+lmcalc = function(data0, i ,s){
+  y_var = "Mixed_NO2"
+  
+  covnames = c( "nightlight_450", "population_1000", "population_3000",
+               "road_class_1_5000", "road_class_2_100", "road_class_3_300",  
+               "trop_mean_filt", "road_class_1_100")
+  formula = as.formula(paste0(y_var,"~", paste0(covnames, collapse = '+')))
+  data1 = data0%>%dplyr::select(covnames,y_var)%>%na.omit()  
+  sdf = as.data.frame(s, xy = T)
+  sdf$b0=1
+   
+  fit1 = lm(formula, data = data1) 
+  pr = predict(fit1, newdata = sdf)
+   #beginCluster()
+  
+  predf = data.frame(pr, x=sdf$x,y= sdf$y)
+  preras = terra::rasterize(x = as.matrix(predf[,2:3]), y = s[[1]], values =predf[,1], fun=mean)
+  
+  terra::writeRaster(preras,paste("~/Downloads/LM", i, ".tif", sep = "_"),
+                     overwrite =T)  
+  
+  #ov <- clusterR(rst, predict, args=list(b, fun = predfun))
+ # writeRaster(ov, pred_name, overwrite = TRUE)
+  #endCluster()
+}
+
+
 
 xgbcalc = function(data0, i ,s){
   y_var = "Mixed_NO2"
@@ -148,6 +176,12 @@ inlacalc = function(data0, i , s ){
   d2$b0 = 1 # intercept
   d2 = d2%>%rename(coox = x, cooy=y, y = Mixed_NO2)
   d2$real = d2$y
+  
+  covnames = c("b0", "nightlight_450", "population_1000", "population_3000",
+               "road_class_1_5000", "road_class_2_100", "road_class_3_300",  
+               "trop_mean_filt", "road_class_1_100")
+  formula = as.formula(paste0('y ~ 0 + ', paste0(covnames, collapse = '+'), " + f(s, model = spde)"))
+  
   d2= d2%>%dplyr::select(covnames, real, coox, cooy, y)%>%data.frame
   # form validation dataset
   train = st_as_sf(data0,coords= c("x","y"),crs =4326)
@@ -163,10 +197,6 @@ inlacalc = function(data0, i , s ){
   sdf = as.data.frame(s, xy = T)
   sdf$b0=1
   sdf = sdf %>%rename(coox = x, cooy=y)
-  covnames = c("b0", "nightlight_450", "population_1000", "population_3000",
-               "road_class_1_5000", "road_class_2_100", "road_class_3_300",  
-               "trop_mean_filt", "road_class_1_100")
-  formula = as.formula(paste0('y ~ 0 + ', paste0(covnames, collapse = '+'), " + f(s, model = spde)"))
   
   lres <- fnFitModelINLA(d2,  sdf, covnames = covnames, formula = formula, TFPOSTERIORSAMPLES = FALSE, family = "gaussian")
   
@@ -195,6 +225,21 @@ createmaps = function(){
     par.settings = myTheme, names.attr = name_attr)
   dev.off()
   
+  pdf("~/Downloads/result/lm_5model.pdf")
+  levelplot(
+    raster::stack(list.files("~/Downloads/", pattern = "LM_*" , full.names = TRUE)),
+    par.settings = myTheme, names.attr = name_attr)
+  dev.off()
+  
+  
+  pdf("~/Downloads/result/lmdif_5model.pdf")
+  rs = rast(list.files("~/Downloads/", pattern = "LM_*" , full.names = TRUE))
+  dif = rs - no2
+  dif = ifel(dif>-20, dif,-20) 
+  levelplot(dif,
+            par.settings = myTheme2, names.attr = name_attr)
+  dev.off()
+  
   pdf("~/Downloads/result/xgbdif_5model.pdf")
   rs = rast(list.files("~/Downloads/", pattern = "xgb*" , full.names = TRUE))
   dif = rs - no2
@@ -202,6 +247,7 @@ createmaps = function(){
   levelplot(dif,
             par.settings = myTheme2, names.attr = name_attr)
   dev.off()
+  
   pdf("~/Downloads/result/INLA_5model.pdf")
   levelplot(
     raster::stack(list.files("~/Downloads/", pattern = "INLA_*" , full.names = TRUE)),
@@ -221,43 +267,90 @@ createmaps = function(){
   stest  =raster::stack(list.files("~/Downloads/", pattern = "INLA*" , full.names = TRUE))
   
   stest2  =raster::stack(list.files("~/Downloads/", pattern = "xgb*" , full.names = TRUE))
+  stest3  =raster::stack(list.files("~/Downloads/", pattern = "LM_*" , full.names = TRUE))
+  
   stest2 = stest2-stest+stest
   
   xgbdif15= stest2[[5]]-stest2[[1]]
   inladif15 =stest [[5]]-stest[[1]]
+  lmdif15= stest3[[5]]-stest3[[1]]
   
-  sta = raster::stack(xgbdif15,inladif15)
-  pdf("~/Downloads/result/INLA_xgb15.pdf")
+  sta = raster::stack(xgbdif15,inladif15,lmdif15)
+  pdf("~/Downloads/result/INLA_xgb_lm15.pdf")
   levelplot(
-    sta,par.settings = myTheme2, names.attr = c("xgb","inla"))
+    sta,par.settings = myTheme2, names.attr = c("xgb","inla","lm"))
   dev.off()
   
   
   xgbdif= rast(stest2[[1]])-no2
   inladif =rast(stest [[1]])-no2 
+  lmdif =rast(stest3 [[1]])-no2 
   xgbdif = ifel(xgbdif>-20, xgbdif,-20) 
   inladif = ifel(inladif>-20, inladif,-20) 
+  lmdif = ifel(lmdif>-20, lmdif,-20) 
+  
   xgbdif = ifel(xgbdif<20, xgbdif,20) 
   inladif = ifel(inladif<20, inladif,20) 
+  lmdif = ifel(lmdif<20, lmdif,-20) 
   
   add(xgbdif)<-inladif
-  pdf("~/Downloads/result/INLA_xgb_comparetoreal_1.pdf")
+  add(xgbdif)<-lmdif
+  pdf("~/Downloads/result/comparetoreal_1.pdf")
   levelplot(
-    xgbdif,par.settings = myTheme2, names.attr = c("xgb","inla"))
+    xgbdif,par.settings = myTheme2, names.attr = c("xgb","inla","lm"))
   dev.off()
   
-  xgbdif= rast(stest2[[5]])-no2
-  inladif =rast(stest [[5]])-no2 
-  xgbdif = ifel(xgbdif>-20, xgbdif,-20) 
-  inladif = ifel(inladif>-20, inladif,-20) 
-  xgbdif = ifel(xgbdif<20, xgbdif,20) 
-  inladif = ifel(inladif<20, inladif,20) 
   
-  add(xgbdif)<-inladif
-  pdf("~/Downloads/result/INLA_xgb_comparetoreal_5.pdf")
-  levelplot(
-    xgbdif,par.settings = myTheme2, names.attr = c("xgb","inla"))
-  dev.off()
+  pdf("~/Downloads/result/lm_inla1.pdf")
+  levelplot(stest3[[1]]-stest[[1]],par.settings = myTheme2)
+    dev.off()
+    
+    pdf("~/Downloads/result/lminla5.pdf")
+    levelplot(stest3[[5]]-stest[[5]],par.settings = myTheme2)
+    dev.off()
+    
+    xgbdif= rast(stest2[[5]])-no2
+    inladif =rast(stest [[5]])-no2 
+    lmdif =rast(stest3 [[5]])-no2 
+    xgbdif = ifel(xgbdif>-20, xgbdif,-20) 
+    inladif = ifel(inladif>-20, inladif,-20) 
+    lmdif = ifel(lmdif>-20, lmdif,-20) 
+    
+    xgbdif = ifel(xgbdif<20, xgbdif,20) 
+    inladif = ifel(inladif<20, inladif,20) 
+    lmdif = ifel(lmdif<20, lmdif,-20) 
+    
+    add(xgbdif)<-inladif
+    add(xgbdif)<-lmdif
+    pdf("~/Downloads/result/comparetoreal_5.pdf")
+    levelplot(
+      xgbdif,par.settings = myTheme2, names.attr = c("xgb","inla","lm"))
+    dev.off()
+    
+  
+  
+  
+  xgbdif= rast(stest2[[1]])-no2
+  inladif =rast(stest [[1]])-no2 
+  dif = xgbdif -inladif 
+  dif = ifel(dif>-10, dif,-10) 
+  dif = ifel(dif<10, dif,10) 
+  
+  
+  # both overestimate, who is better?
+  # it is obvious that INLA model overestimate more at local roads, and even more with more traffic samples
+  dif2 = ifel (xgbdif > 0, dif,NA )
+  dif3 = ifel (inladif >0, dif2,NA )
+  pdf("~/Downloads/result/xgbinla1_dif_overrestimate.pdf")
+  levelplot(dif3,par.settings = myTheme2, names.attr = c("overestimate"), margin =F)
+  dev.off() 
+  
+  # both underestimate, who is better?
+  dif2 = ifel (xgbdif < 0, dif,NA )
+  dif3 = ifel (inladif <0, dif2,NA )
+  pdf("~/Downloads/result/xgbinla1_dif_under.pdf")
+  levelplot(dif3,par.settings = myTheme2, names.attr = c("underestimate"), margin =F)
+  dev.off() 
   
   xgbdif= rast(stest2[[5]])-no2
   inladif =rast(stest [[5]])-no2 
@@ -278,6 +371,61 @@ createmaps = function(){
   dif2 = ifel (xgbdif < 0, dif,NA )
   dif3 = ifel (inladif <0, dif2,NA )
   pdf("~/Downloads/result/xgbinla5_dif_under.pdf")
+  levelplot(dif3,par.settings = myTheme2, names.attr = c("underestimate"), margin =F)
+  dev.off() 
+  
+  xgbdif= rast(stest2[[5]])-no2
+  inladif =rast(stest [[5]])-no2 
+  pdf("~/Downloads/result/INLA_xgb_dif.pdf")
+  difxgbinla = stest[[5]]-stest2[[5]]
+  levelplot(difxgbinla,par.settings = myTheme2)
+  dev.off()
+  
+  
+  
+  
+ lmdif= rast(stest3[[5]])-no2
+  inladif =rast(stest [[5]])-no2 
+  dif = lmdif -inladif 
+  dif = ifel(dif>-10, dif,-10) 
+  dif = ifel(dif<10, dif,10) 
+  
+  
+  # both overestimate, who is better?
+  # it is obvious that INLA model overestimate more at local roads, and even more with more traffic samples
+  dif2 = ifel (lmdif > 0, dif,NA )
+  dif3 = ifel (inladif >0, dif2,NA )
+  pdf("~/Downloads/result/lminla5_dif_overrestimate.pdf")
+  levelplot(dif3,par.settings = myTheme2, names.attr = c("overestimate"), margin =F)
+  dev.off() 
+  
+  # both underestimate, who is better?
+  dif2 = ifel (lmdif < 0, dif,NA )
+  dif3 = ifel (inladif <0, dif2,NA )
+  pdf("~/Downloads/result/lminla5_dif_under.pdf")
+  levelplot(dif3,par.settings = myTheme2, names.attr = c("underestimate"), margin =F)
+  dev.off() 
+  
+ #first
+  lmdif= rast(stest3[[1]])-no2
+  inladif =rast(stest [[1]])-no2 
+  dif = lmdif -inladif 
+  dif = ifel(dif>-10, dif,-10) 
+  dif = ifel(dif<10, dif,10) 
+  
+  
+  # both overestimate, who is better?
+  # it is obvious that INLA model overestimate more at local roads, and even more with more traffic samples
+  dif2 = ifel (lmdif > 0, dif,NA )
+  dif3 = ifel (inladif >0, dif2,NA )
+  pdf("~/Downloads/result/lminla1_dif_overrestimate.pdf")
+  levelplot(dif3,par.settings = myTheme2, names.attr = c("overestimate"), margin =F)
+  dev.off() 
+  
+  # both underestimate, who is better?
+  dif2 = ifel (lmdif < 0, dif,NA )
+  dif3 = ifel (inladif <0, dif2,NA )
+  pdf("~/Downloads/result/lminla1_dif_under.pdf")
   levelplot(dif3,par.settings = myTheme2, names.attr = c("underestimate"), margin =F)
   dev.off() 
   
@@ -337,9 +485,10 @@ st_geometry(vali_notraf) = NULL
 ## INLA and XGB calculation
 for (i in 1:5){
   data0  = create_dataset (traffic = traffic, no_traffic=no_traf,ras_stack = s, n_traffic= s1[i], n_no_traffic= s2[i])
-  xgbcalc( data0 = data0, i = i, s = s)
-  inlacalc(data0 = data0,  i = i, s = s )
+  #xgbcalc( data0 = data0, i = i, s = s)
+  #inlacalc(data0 = data0,  i = i, s = s )
+  lmcalc(data0 = data0,  i = i, s = s )
 }
 
 #create maps
-createmaps()
+#createmaps() need to run functions in the function, this way does not seem to work 

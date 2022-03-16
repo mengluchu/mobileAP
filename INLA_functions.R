@@ -2,13 +2,13 @@
 #' 
 #' @param coo coordinates to create the mesh
 #' @return mesh boject
-fnConstructMesh = function(coo, cutoff_ratio=0.1){
+fnConstructMesh = function(coo, cutoff_ratio=0.01){
   # meshbuilder()
   # offset: size of the inner and outer extensions around the data locations
   (offset1 = 1/8*max(dist(coo)))  #1/8
   (offset2 = 1/8*max(dist(coo)))
   # max.edge: maximum allowed triangle edge lengths in the region and in the extension
-  (maxedge1 = 1/20*max(dist(coo))) #1/30
+  (maxedge1 = 1/3*max(dist(coo))) #1/30
   (maxedge2 = 1*max(dist(coo)))  #1/5
   # cutoff: minimum allowed distance between points used to avoid building many small triangles around clustered locations
   (cutoff = cutoff_ratio*max(dist(coo)))
