@@ -2,19 +2,23 @@
 #' 
 #' @param coo coordinates to create the mesh
 #' @return mesh boject
-fnConstructMesh = function(coo, cutoff_ratio=0.01){
+fnConstructMesh = function(coo, cutoff_ratio=0.005, i){
   # meshbuilder()
   # offset: size of the inner and outer extensions around the data locations
   (offset1 = 1/8*max(dist(coo)))  #1/8
   (offset2 = 1/8*max(dist(coo)))
   # max.edge: maximum allowed triangle edge lengths in the region and in the extension
-  (maxedge1 = 1/3*max(dist(coo))) #1/30
-  (maxedge2 = 1*max(dist(coo)))  #1/5
+  (maxedge1 = quantile(dist(coo), 0.2)) #1/30
+  (maxedge2 = quantile(dist(coo), 0.5))  #1/5
   # cutoff: minimum allowed distance between points used to avoid building many small triangles around clustered locations
-  (cutoff = cutoff_ratio*max(dist(coo)))
+  (cutoff = cutoff_ratio*quantile(dist(coo), 0.1)) #WAS max, [5] 500 -> 1501->1800->2231
   mesh = inla.mesh.2d(loc = coo, offset = c(offset1, offset2), cutoff = cutoff, max.edge = c(maxedge1, maxedge2))
+  #png("~/Downloads/mesh", i, ".png")
   plot(mesh)
   points(coo, col = "red")
+  write.csv(mesh$n,  file = paste0("~/Downloads/meshnodes", i,".csv"))
+
+  #dev.off()
   print(mesh$n)
   return(mesh)
 }
@@ -39,12 +43,12 @@ fnConstructMesh = function(coo, cutoff_ratio=0.01){
 #' If it config = TRUE we will get a res object with which we could call \code{inla.posterior.samples()}
 #' @return list with the results of the fitted model, stk.full and mesh
 
-fnFitModelINLA = function(d, dp, formula, covnames, TFPOSTERIORSAMPLES, family = ""){
+fnFitModelINLA = function(d, dp, formula, covnames, TFPOSTERIORSAMPLES, family = "", i){
   # Coordinates locations
   coo = cbind(d$coox, d$cooy)
   # Mesh
-  mesh = fnConstructMesh(coo)
-  print("mesh")
+  mesh = fnConstructMesh(coo, i = i)
+  
   # Building the SPDE model on the mesh
   #  spde = inla.spde2.pcmatern(mesh, prior.range = c(500, .5), prior.sigma = c(2, 0.01))
   spde = inla.spde2.matern(mesh = mesh, alpha = 2, constr = TRUE)
