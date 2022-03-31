@@ -12,7 +12,7 @@ library(INLA)
 source("~/Documents/mobileAP/INLA_functions.R")
 library("gstat")
 library("automap")
-
+library(tidyr)
 library(sf)
 library(dplyr)
 library(terra)
@@ -95,9 +95,9 @@ ggsave("~/Downloads/notraffic.png")
 nrow(traffic)
 plot(no_traf)
 
-create_dataset = function(traffic = traffic, no_traffic=no_traf,ras_stack = s2, n_traffic= 300, n_no_traffic= 50)
+create_dataset = function(traffic = traffic, no_traffic=no_traf,ras_stack = s2, n_traffic= 300, n_no_traffic= 50, oversample_traf=1)
 {
-  sample_traffic = st_sample(traffic, n_traffic)%>%st_cast("POINT")
+  sample_traffic = st_sample(traffic, n_traffic)%>%st_cast("POINT")%>% st_sample(floor( n_traffic*oversample_traf), replace = T)%>%st_cast("POINT") # oversample rate, 1 = no oversample
   st_crs(sample_traffic) = 4326
   
   sample_no_traffic = st_sample(no_traffic, n_no_traffic)%>%st_cast("POINT")
@@ -509,13 +509,73 @@ fnConstructMesh = function(coo, cutoff_ratio=0.0001, i){
   return(mesh)
 }
 
+errormat = function(rasters, no2)
+{
+  dif= rasters-no2
+  totalrmse= sqrt(mean(values(dif^2), na.rm=T))
+  r2 = summary(lm(values(rasters)~ values(no2)))$r.squared
+  
+  traf = ifel(s[["road_class_2_100"]]>0.1|s[["road_class_1_100"]]>0.1, rasters, NA)
+  ru = ifel(s[["road_class_2_100"]]<0.1&s[["road_class_1_100"]]<0.1, rasters, NA)
+  diftraf = traf-no2
+  difru = ru-no2
+  trafrmse= sqrt(mean(values(diftraf^2), na.rm=T))
+  rurmse= sqrt(mean(values(difru^2), na.rm=T))
+  r2_tr =summary(lm(values(traf)~ values(no2)))$r.squared
+  r2_ru =summary(lm(values(ru)~ values(no2)))$r.squared
+  
+  c(totalrmse, trafrmse, rurmse, r2, r2_tr, r2_ru)
+}
+
 #calculation starts here
 total = 100
 #s1 = c(50, 150,300,500,700) # traffic 7000, 
+ratio #traffic / rural ratio
 s1 = c(floor(total *ratio*0.2),floor(total *ratio*0.5),floor(total *ratio*1),floor(total *ratio*1.5),floor(total *ratio*2)) # traffic 7000, 
 s2 = total - s1
 #s2 =rep(200,5)
+s1
+i =3 #traf = 38
+osrates = c(1.5,2,2.5)
+for (osrate in osrates)
+  {
+  set.seed(2)
+  data0  = create_dataset (traffic = traffic_l, no_traffic=mid_traf,ras_stack = s, n_traffic= s1[i], n_no_traffic= s2[i], oversample_traf = osrate)
+print(nrow(data0))
+#inlacalc(data0 = data0,  i = i, s = s )
+#xgbcalc( data0 = data0, i = osrate, s = s)
+lmcalc( data0 = data0, i = osrate, s = s)
+}
+data0sf = st_as_sf(data0, coords = c("x","y"))
+data0sf = st_buffer(data0sf, 0.001)
+valiras =  mask(no2, vect(data0sf), inverse= TRUE) 
+ 
+x1 = rast(paste0("Downloads/xgb_",osrates[1],"_.tif"))
+x2 = rast(paste0("Downloads/xgb_",osrates[2],"_.tif"))
+x3 = rast(paste0("Downloads/xgb_",osrates[3],"_.tif"))
 
+x0 = rast("Downloads/normallm/LM_3_.tif")
+#x0 = rast("Downloads/normalxgb/xgb_3_.tif")
+add(x0) <-c(x1,x2,x3) 
+error0 = x0-valiras
+
+names(error0) = c("balanced", paste0("oversample traffic rate:", osrates)) 
+#png("Downloads/lmoversample_error_100_3_2a4a6.png")
+levelplot(error0 , par.setting =myTheme2)
+#dev.off()
+ 
+d = data.frame(balanced = errormat(x0[[1]],valiras), oversample2 = errormat(x0[[2]],valiras), oversample3 = errormat(x0[[3]],valiras),oversample4 =errormat(x0[[4]],valiras))
+d= d[4:6,]
+#d$var = c("rmse","rmse_traf","rmse_ru","r2", "r2_traf", "r2_ru")
+d$var = c("r2", "r2_traf", "r2_ru")
+
+d =gather(d,key, value, -var)
+ggplot(data=d, aes(x=var, y=value, fill =key)) +geom_bar(stat="identity", position=position_dodge())
+
+#ggsave("Downloads/lmrmser2_100_3_2a4a6.png")
+ 
+
+ 
 set.seed(1)
 par(mfrow = c(1,1))
 for (i in 1:5){
@@ -606,24 +666,9 @@ for(i in 1:5)
   dev.off()
 }
 ###
-  errormat = function(rasters, no2)
-{
-    dif= rasters-no2
-    totalrmse= sqrt(mean(values(dif^2), na.rm=T))
-    r2 = summary(lm(values(rasters)~ values(no2)))$r.squared
-    
-    traf = ifel(s[["road_class_2_100"]]>0.1|s[["road_class_1_100"]]>0.1, rasters, NA)
-    ru = ifel(s[["road_class_2_100"]]<0.1&s[["road_class_1_100"]]<0.1, rasters, NA)
-    diftraf = traf-no2
-    difru = ru-no2
-    trafrmse= sqrt(mean(values(diftraf^2), na.rm=T))
-    rurmse= sqrt(mean(values(difru^2), na.rm=T))
-    r2_tr =summary(lm(values(traf)~ values(no2)))$r.squared
-    r2_ru =summary(lm(values(ru)~ values(no2)))$r.squared
-    
-    c(totalrmse, trafrmse, rurmse, r2, r2_tr, r2_ru)
-  }
-  ss0 = data.frame()
+ 
+  
+    ss0 = data.frame()
   
 for (i in 1:5)
   {
